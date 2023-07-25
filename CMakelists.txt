@@ -4,6 +4,9 @@ project(ODBC_Tester_App)
 set(CMAKE_CXX_STANDARD 17)
 include_directories(/opt/homebrew/Cellar/unixodbc/2.3.11/include)
 
+include_directories(duckdb/src/include/)
+
 add_executable(ODBC_Tester_App main.cpp)
 
 target_link_libraries(ODBC_Tester_App /Users/holanda/Documents/Projects/connector_benchmark/duckdb/build/release/tools/odbc/libduckdb_odbc.dylib)
+target_link_libraries(ODBC_Tester_App /Users/holanda/Documents/Projects/connector_benchmark/duckdb/build/release/src/libduckdb.dylib)

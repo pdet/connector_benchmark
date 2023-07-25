@@ -5,10 +5,10 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include "duckdb/common/adbc/adbc.hpp"
+
 
 const int numRuns = 5;
-// Determine the size of the data in the column
-const SQLINTEGER colSize = 6001215;
 
 void check_ret(SQLRETURN ret, std::string msg) {
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
@@ -62,7 +62,7 @@ void odbc(){
     }
     std::vector<double> executionTimes;
 
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < numRuns; ++i) {
         auto startTime = std::chrono::high_resolution_clock::now();
 
         SQLHSTMT hstmt;
@@ -128,15 +128,14 @@ void odbc(){
         check_ret(ret, "SQLFreeHandle(hstmt)");
         auto endTime = std::chrono::high_resolution_clock::now();
 
-        auto duration = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
 
         executionTimes.push_back(static_cast<double>(duration));
     }
     std::sort(executionTimes.begin(), executionTimes.end());
 
-    std::cout << "[ODBC] Median execution time: " << executionTimes[0]  << std::endl;
+    std::cout << "[ODBC] Median execution time: " << executionTimes[2]  << std::endl;
 
-    
     
     ret = SQLDisconnect(dbc);
     check_ret(ret, "SQLDisconnect");
@@ -148,6 +147,65 @@ void odbc(){
     check_ret(ret, "SQLFreeHandle(env)");
 }
 
+void adbc(){
+    duckdb_adbc::AdbcError adbc_error;
+    duckdb_adbc::InitiliazeADBCError(&adbc_error);
+
+    duckdb_adbc::AdbcDatabase adbc_database;
+    duckdb_adbc::AdbcConnection adbc_connection;
+    duckdb_adbc::AdbcStatement adbc_statement;
+    ArrowArrayStream arrow_stream;
+    ArrowArray arrow_array;
+    auto duckdb_lib = "/Users/holanda/Documents/Projects/connector_benchmark/duckdb/build/release/src/libduckdb.dylib";
+    int64_t rows_affected;
+
+    AdbcDatabaseNew(&adbc_database, &adbc_error);
+    AdbcDatabaseSetOption(&adbc_database, "driver", duckdb_lib, &adbc_error);
+    AdbcDatabaseSetOption(&adbc_database, "entrypoint", "duckdb_adbc_init", &adbc_error);
+    AdbcDatabaseSetOption(&adbc_database, "path", ":memory:", &adbc_error);
+
+    AdbcDatabaseInit(&adbc_database, &adbc_error);
+
+    AdbcConnectionNew(&adbc_connection, &adbc_error);
+    AdbcConnectionInit(&adbc_connection, &adbc_database, &adbc_error);
+
+    AdbcStatementNew(&adbc_connection, &adbc_statement, &adbc_error);
+    AdbcStatementSetSqlQuery(&adbc_statement, "CALL DBGEN(sf=1)", &adbc_error);
+    AdbcStatementExecuteQuery(&adbc_statement, &arrow_stream, &rows_affected, &adbc_error);
+    std::vector<double> executionTimes;
+    for (int i = 0; i < numRuns; ++i) {
+        duckdb_adbc::AdbcStatement adbc_statement_q;
+        auto startTime = std::chrono::high_resolution_clock::now();
+
+        AdbcStatementNew(&adbc_connection, &adbc_statement_q, &adbc_error);
+        AdbcStatementSetSqlQuery(&adbc_statement_q, "SELECT * FROM lineitem;", &adbc_error);
+        AdbcStatementExecuteQuery(&adbc_statement_q, &arrow_stream, &rows_affected, &adbc_error);
+        ArrowArray out;
+        arrow_stream.get_next(&arrow_stream,&out);
+        while (out.release){
+           // std::cout << out.length << std::endl;
+            out.release(&out);
+            arrow_stream.get_next(&arrow_stream,&out);
+        }
+        if (out.release){
+             out.release(&out);
+
+        }
+        auto endTime = std::chrono::high_resolution_clock::now();
+
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+
+        executionTimes.push_back(static_cast<double>(duration));
+        arrow_stream.release(&arrow_stream);
+        AdbcStatementRelease(&adbc_statement_q, &adbc_error);
+
+    }
+    std::sort(executionTimes.begin(), executionTimes.end());
+    std::cout << "[ADBC] Median execution time: " << executionTimes[2]  << std::endl;
+
+}
+
 int main() {
     odbc();
+    adbc();
 }
